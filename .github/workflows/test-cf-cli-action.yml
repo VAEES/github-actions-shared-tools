@@ -1,0 +1,153 @@
+name: Test CF CLI Action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/setup-cf-cli/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/actions/setup-cf-cli/**'
+  workflow_dispatch:
+    inputs:
+      cf_version:
+        description: 'CF CLI version to test'
+        required: false
+        default: 'latest'
+
+jobs:
+  test-latest-version:
+    name: Test Latest CF CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup CF CLI (latest)
+        id: cf-setup-latest
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: 'latest'
+          
+      - name: Verify CF CLI installation
+        run: |
+          echo "Testing CF CLI installation..."
+          cf version
+          which cf
+          
+      - name: Test CF CLI basic commands
+        run: |
+          echo "Testing basic CF CLI commands..."
+          cf help
+          cf curl /v2/info || echo "Expected to fail without login"
+          
+      - name: Show outputs
+        run: |
+          echo "CF CLI Version: ${{ steps.cf-setup-latest.outputs.cf-version }}"
+          echo "Cache Hit: ${{ steps.cf-setup-latest.outputs.cache-hit }}"
+
+  test-specific-version:
+    name: Test Specific CF CLI Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup CF CLI (v8.7.10)
+        id: cf-setup-specific
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: '8.7.10'
+          cache-key-suffix: '-test'
+          
+      - name: Verify specific version
+        run: |
+          echo "Testing specific CF CLI version..."
+          cf version
+          # Verify version contains 8.7.10
+          cf version | grep -q "8.7.10" && echo "✅ Correct version installed" || exit 1
+          
+      - name: Show outputs
+        run: |
+          echo "CF CLI Version: ${{ steps.cf-setup-specific.outputs.cf-version }}"
+          echo "Cache Hit: ${{ steps.cf-setup-specific.outputs.cache-hit }}"
+
+  test-cache-behavior:
+    name: Test Cache Behavior
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: First CF CLI setup (should download)
+        id: cf-setup-first
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: 'latest'
+          cache-key-suffix: '-cache-test'
+          
+      - name: Verify first installation
+        run: |
+          echo "First installation - Cache Hit: ${{ steps.cf-setup-first.outputs.cache-hit }}"
+          cf version
+          
+      - name: Second CF CLI setup (should use cache)
+        id: cf-setup-second
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: 'latest'
+          cache-key-suffix: '-cache-test'
+          
+      - name: Verify cache usage
+        run: |
+          echo "Second installation - Cache Hit: ${{ steps.cf-setup-second.outputs.cache-hit }}"
+          cf version
+          # Note: Cache hit might still be 'false' in same job due to GitHub Actions behavior
+
+  test-matrix:
+    name: Test Matrix Builds
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-20.04]
+        cf_version: ['latest', '8.7.10']
+        
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup CF CLI
+        id: cf-setup
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: ${{ matrix.cf_version }}
+          cache-key-suffix: '-${{ matrix.os }}'
+          
+      - name: Test CF CLI
+        run: |
+          echo "Testing on ${{ matrix.os }} with CF CLI ${{ matrix.cf_version }}"
+          cf version
+          echo "CF CLI Version: ${{ steps.cf-setup.outputs.cf-version }}"
+          echo "Cache Hit: ${{ steps.cf-setup.outputs.cache-hit }}"
+
+  test-workflow-input:
+    name: Test Workflow Input Version
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup CF CLI with input version
+        id: cf-setup-input
+        uses: .//.github/actions/setup-cf-cli
+        with:
+          version: ${{ github.event.inputs.cf_version }}
+          
+      - name: Test input version
+        run: |
+          echo "Testing CF CLI version from workflow input..."
+          cf version
+          echo "Requested: ${{ github.event.inputs.cf_version }}"
+          echo "Installed: ${{ steps.cf-setup-input.outputs.cf-version }}"

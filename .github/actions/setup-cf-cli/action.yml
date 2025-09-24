@@ -1,0 +1,91 @@
+name: 'Setup CF CLI'
+description: 'Download, cache and setup Cloud Foundry CLI for use in GitHub Actions'
+author: 'VAEES'
+
+inputs:
+  version:
+    description: 'CF CLI version to install (e.g., "8.7.10" or "latest")'
+    required: false
+    default: 'latest'
+  cache-key-suffix:
+    description: 'Additional suffix for cache key (useful for matrix builds)'
+    required: false
+    default: ''
+
+outputs:
+  cf-version:
+    description: 'The installed CF CLI version'
+    value: ${{ steps.get-version.outputs.version }}
+  cache-hit:
+    description: 'Whether the CF CLI was restored from cache'
+    value: ${{ steps.cache-cf.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine CF CLI download URL
+      shell: bash
+      id: determine-url
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          echo "url=https://packages.cloudfoundry.org/stable?release=linux64-binary&source=github" >> $GITHUB_OUTPUT
+          echo "cache-version=latest-$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+        else
+          VERSION="${{ inputs.version }}"
+          echo "url=https://packages.cloudfoundry.org/stable?release=linux64-binary&version=${VERSION}&source=github" >> $GITHUB_OUTPUT
+          echo "cache-version=${VERSION}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Cache CF CLI
+      uses: actions/cache@v4
+      id: cache-cf
+      with:
+        path: ~/cf-cli
+        key: cf-cli-${{ steps.determine-url.outputs.cache-version }}${{ inputs.cache-key-suffix }}
+        restore-keys: |
+          cf-cli-${{ steps.determine-url.outputs.cache-version }}
+          cf-cli-
+
+    - name: Download and install CF CLI
+      if: steps.cache-cf.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        echo "📥 Downloading CF CLI..."
+        mkdir -p ~/cf-cli
+        
+        # Download CF CLI
+        wget -q -O cf-cli.tgz "${{ steps.determine-url.outputs.url }}"
+        
+        # Extract and install
+        tar -xzf cf-cli.tgz -C ~/cf-cli/
+        chmod +x ~/cf-cli/cf
+        
+        # Cleanup
+        rm cf-cli.tgz
+        
+        echo "✅ CF CLI downloaded and installed successfully"
+
+    - name: Add CF CLI to PATH
+      shell: bash
+      run: |
+        echo "$HOME/cf-cli" >> $GITHUB_PATH
+        echo "🔧 CF CLI added to PATH"
+
+    - name: Get CF CLI version
+      shell: bash
+      id: get-version
+      run: |
+        VERSION=$(~/cf-cli/cf version | head -n1 | awk '{print $3}')
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "📋 CF CLI version: ${VERSION}"
+
+    - name: Verify installation
+      shell: bash
+      run: |
+        echo "🧪 Verifying CF CLI installation..."
+        cf version
+        echo "✅ CF CLI is ready to use!"
+
+branding:
+  icon: 'cloud'
+  color: 'blue'
