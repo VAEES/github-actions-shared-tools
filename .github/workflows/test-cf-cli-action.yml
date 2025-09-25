@@ -17,61 +17,63 @@ on:
         default: 'latest'
 
 jobs:
-  test-latest-version:
-    name: Test Latest CF CLI
+  quick-test:
+    name: Quick Smoke Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
       - name: Setup CF CLI (latest)
-        id: cf-setup-latest
         uses: .//.github/actions/setup-cf-cli
         with:
           version: 'latest'
           
-      - name: Verify CF CLI installation
+      - name: Smoke test
         run: |
-          echo "Testing CF CLI installation..."
+          echo "🧪 Quick smoke test..."
           cf version
-          which cf
-          
-      - name: Test CF CLI basic commands
-        run: |
-          echo "Testing basic CF CLI commands..."
-          cf help
-          cf curl /v2/info || echo "Expected to fail without login"
-          
-      - name: Show outputs
-        run: |
-          echo "CF CLI Version: ${{ steps.cf-setup-latest.outputs.cf-version }}"
-          echo "Cache Hit: ${{ steps.cf-setup-latest.outputs.cache-hit }}"
+          echo "✅ CF CLI is working!"
 
-  test-specific-version:
-    name: Test Specific CF CLI Version
+  test-versions-and-cache:
+    name: Test Versions & Cache
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test_case:
+          - { version: 'latest', name: 'latest' }
+          - { version: '8.7.10', name: 'specific' }
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Setup CF CLI (v8.7.10)
-        id: cf-setup-specific
+      - name: Setup CF CLI (${{ matrix.test_case.name }})
+        id: cf-setup
         uses: .//.github/actions/setup-cf-cli
         with:
-          version: '8.7.10'
-          cache-key-suffix: '-test'
+          version: ${{ matrix.test_case.version }}
+          cache-key-suffix: '-${{ matrix.test_case.name }}'
           
-      - name: Verify specific version
+      - name: Verify CF CLI installation
         run: |
-          echo "Testing specific CF CLI version..."
+          echo "Testing CF CLI ${{ matrix.test_case.version }}..."
           cf version
-          # Verify version contains 8.7.10
-          cf version | grep -q "8.7.10" && echo "✅ Correct version installed" || exit 1
+          which cf
+          
+          # Verify specific version if not latest
+          if [ "${{ matrix.test_case.version }}" = "8.7.10" ]; then
+            cf version | grep -q "8.7.10" && echo "✅ Correct version installed" || exit 1
+          fi
+          
+      - name: Test basic commands
+        run: |
+          cf help > /dev/null
+          cf curl /v2/info || echo "Expected to fail without login"
           
       - name: Show outputs
         run: |
-          echo "CF CLI Version: ${{ steps.cf-setup-specific.outputs.cf-version }}"
-          echo "Cache Hit: ${{ steps.cf-setup-specific.outputs.cache-hit }}"
+          echo "CF CLI Version: ${{ steps.cf-setup.outputs.cf-version }}"
+          echo "Cache Hit: ${{ steps.cf-setup.outputs.cache-hit }}"
 
   test-cache-behavior:
     name: Test Cache Behavior
@@ -104,32 +106,6 @@ jobs:
           echo "Second installation - Cache Hit: ${{ steps.cf-setup-second.outputs.cache-hit }}"
           cf version
           # Note: Cache hit might still be 'false' in same job due to GitHub Actions behavior
-
-  test-matrix:
-    name: Test Matrix Builds
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, ubuntu-20.04]
-        cf_version: ['latest', '8.7.10']
-        
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      - name: Setup CF CLI
-        id: cf-setup
-        uses: .//.github/actions/setup-cf-cli
-        with:
-          version: ${{ matrix.cf_version }}
-          cache-key-suffix: '-${{ matrix.os }}'
-          
-      - name: Test CF CLI
-        run: |
-          echo "Testing on ${{ matrix.os }} with CF CLI ${{ matrix.cf_version }}"
-          cf version
-          echo "CF CLI Version: ${{ steps.cf-setup.outputs.cf-version }}"
-          echo "Cache Hit: ${{ steps.cf-setup.outputs.cache-hit }}"
 
   test-workflow-input:
     name: Test Workflow Input Version
